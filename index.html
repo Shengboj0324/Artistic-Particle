@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Particle Flow — Hand Gesture Art</title>
+    <meta name="description" content="Transform your hand movements into mesmerizing 3D particle art using AI-powered gesture recognition">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Immersive Loading Experience -->
+        <div id="loading-screen">
+            <div class="loader-container">
+                <div class="loader-orb">
+                    <div class="orb-core"></div>
+                    <div class="orb-ring ring-1"></div>
+                    <div class="orb-ring ring-2"></div>
+                    <div class="orb-ring ring-3"></div>
+                </div>
+                <div class="loader-content">
+                    <h1 class="loader-title">Particle Flow</h1>
+                    <p class="loader-subtitle">Initializing Neural Hand Tracking</p>
+                    <div class="loader-progress">
+                        <div class="progress-bar"></div>
+                    </div>
+                    <p class="loader-status" id="loading-status">Loading MediaPipe ML Models...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main 3D Canvas -->
+        <div id="canvas-container"></div>
+
+        <!-- Hidden Video Feed -->
+        <video id="camera-feed" autoplay playsinline muted></video>
+
+        <!-- Debug Overlay -->
+        <canvas id="debug-canvas" width="640" height="480"></canvas>
+
+        <!-- Floating Control Panel -->
+        <div id="control-panel" class="glass-panel">
+            <div class="panel-header">
+                <h2>Controls</h2>
+                <button id="toggle-panel" class="icon-btn" aria-label="Toggle panel">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="panel-content">
+                <!-- Camera Control -->
+                <div class="control-section">
+                    <button id="toggle-camera" class="primary-btn">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+                        </svg>
+                        <span>Start Camera</span>
+                    </button>
+                </div>
+
+                <!-- Visual Preset -->
+                <div class="control-section">
+                    <label class="section-label">Visual Preset</label>
+                    <div class="preset-grid" id="preset-selector">
+                        <button class="preset-btn active" data-preset="nebula">
+                            <span class="preset-icon">🌌</span>
+                            <span class="preset-name">Nebula</span>
+                        </button>
+                        <button class="preset-btn" data-preset="aurora">
+                            <span class="preset-icon">🌈</span>
+                            <span class="preset-name">Aurora</span>
+                        </button>
+                        <button class="preset-btn" data-preset="fireflies">
+                            <span class="preset-icon">✨</span>
+                            <span class="preset-name">Fireflies</span>
+                        </button>
+                        <button class="preset-btn" data-preset="ocean">
+                            <span class="preset-icon">🌊</span>
+                            <span class="preset-name">Ocean</span>
+                        </button>
+                        <button class="preset-btn" data-preset="galaxy">
+                            <span class="preset-icon">🌀</span>
+                            <span class="preset-name">Galaxy</span>
+                        </button>
+                        <button class="preset-btn" data-preset="ember">
+                            <span class="preset-icon">🔥</span>
+                            <span class="preset-name">Ember</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Interaction Mode -->
+                <div class="control-section">
+                    <label class="section-label">Interaction</label>
+                    <div class="mode-selector" id="mode-selector">
+                        <button class="mode-chip active" data-mode="flow">Flow</button>
+                        <button class="mode-chip" data-mode="attract">Attract</button>
+                        <button class="mode-chip" data-mode="repel">Repel</button>
+                        <button class="mode-chip" data-mode="vortex">Vortex</button>
+                        <button class="mode-chip" data-mode="sculpt">Sculpt</button>
+                    </div>
+                </div>
+
+                <!-- Particle Density -->
+                <div class="control-section">
+                    <label class="section-label">
+                        <span>Particle Density</span>
+                        <span class="value-display" id="density-value">75K</span>
+                    </label>
+                    <input type="range" id="density-slider" class="styled-slider" min="25000" max="150000" value="75000" step="5000">
+                </div>
+
+                <!-- Effect Intensity -->
+                <div class="control-section">
+                    <label class="section-label">
+                        <span>Effect Intensity</span>
+                        <span class="value-display" id="intensity-value">100%</span>
+                    </label>
+                    <input type="range" id="intensity-slider" class="styled-slider" min="0" max="200" value="100">
+                </div>
+
+                <!-- Trail Length -->
+                <div class="control-section">
+                    <label class="section-label">
+                        <span>Trail Length</span>
+                        <span class="value-display" id="trail-value">Medium</span>
+                    </label>
+                    <input type="range" id="trail-slider" class="styled-slider" min="0" max="100" value="50">
+                </div>
+
+                <!-- Toggle Options -->
+                <div class="control-section toggles">
+                    <label class="toggle-option">
+                        <input type="checkbox" id="show-hands" checked>
+                        <span class="toggle-switch"></span>
+                        <span>Show Hand Skeleton</span>
+                    </label>
+                    <label class="toggle-option">
+                        <input type="checkbox" id="show-trails" checked>
+                        <span class="toggle-switch"></span>
+                        <span>Particle Trails</span>
+                    </label>
+                    <label class="toggle-option">
+                        <input type="checkbox" id="auto-rotate">
+                        <span class="toggle-switch"></span>
+                        <span>Auto Rotate Camera</span>
+                    </label>
+                </div>
+
+                <!-- Debug Toggle -->
+                <div class="control-section">
+                    <button id="toggle-debug" class="secondary-btn">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10M1 12h6m6 0h10"/>
+                        </svg>
+                        <span>Debug View</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats HUD -->
+        <div id="stats-hud" class="glass-panel mini">
+            <div class="stat-row">
+                <span class="stat-icon">⚡</span>
+                <span id="fps-value">60</span>
+                <span class="stat-unit">FPS</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-icon">✦</span>
+                <span id="particle-count">0</span>
+                <span class="stat-unit">particles</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-icon">✋</span>
+                <span id="hand-count">0</span>
+                <span class="stat-unit">hands</span>
+            </div>
+        </div>
+
+        <!-- Hand Status Indicators -->
+        <div id="hand-indicators">
+            <div class="hand-badge left" id="left-hand-badge">
+                <span class="hand-icon">🤚</span>
+                <span class="hand-label">Left</span>
+                <span class="hand-status">—</span>
+            </div>
+            <div class="hand-badge right" id="right-hand-badge">
+                <span class="hand-icon">✋</span>
+                <span class="hand-label">Right</span>
+                <span class="hand-status">—</span>
+            </div>
+        </div>
+
+        <!-- Gesture Feedback -->
+        <div id="gesture-feedback"></div>
+
+        <!-- Instructions Overlay (first time) -->
+        <div id="instructions-overlay" class="glass-panel">
+            <div class="instructions-content">
+                <h2>Welcome to Particle Flow</h2>
+                <p>Transform your hand movements into mesmerizing 3D particle art</p>
+                <div class="instruction-steps">
+                    <div class="step">
+                        <span class="step-num">1</span>
+                        <span>Click <strong>Start Camera</strong> and allow access</span>
+                    </div>
+                    <div class="step">
+                        <span class="step-num">2</span>
+                        <span>Move your hands in front of the camera</span>
+                    </div>
+                    <div class="step">
+                        <span class="step-num">3</span>
+                        <span>Watch particles respond to your gestures</span>
+                    </div>
+                </div>
+                <button id="dismiss-instructions" class="primary-btn">Get Started</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MediaPipe Hand Tracking -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.min.js"></script>
+
+    <!-- Three.js Core + Addons -->
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <!-- Application Entry -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
+
