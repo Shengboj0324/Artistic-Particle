@@ -520,7 +520,7 @@ class ParticleFlowApp {
             this.particles.material.dispose();
         }
 
-        // Reinitialize physics engine with new particle count
+        // Recreate physics engine with new count
         this.physics = new PhysicsEngine(count);
         const preset = PRESETS[this.preset];
         if (preset?.physics) {
@@ -632,11 +632,25 @@ class ParticleFlowApp {
             autoRotateCheckbox.addEventListener('change', (e) => this.setAutoRotate(e.target.checked));
         }
 
-        // Dismiss instructions
+        // Dismiss instructions AND start camera
         const dismissBtn = document.getElementById('dismiss-instructions');
         if (dismissBtn) {
-            dismissBtn.addEventListener('click', () => {
+            dismissBtn.addEventListener('click', async () => {
                 document.getElementById('instructions-overlay')?.classList.add('hidden');
+                // Auto-start camera when user clicks "Get Started"
+                if (!this.isCameraActive) {
+                    try {
+                        const active = await this.toggleCamera();
+                        if (cameraBtn) {
+                            cameraBtn.classList.toggle('active', active);
+                            const span = cameraBtn.querySelector('span');
+                            if (span) span.textContent = active ? 'Stop Camera' : 'Start Camera';
+                        }
+                    } catch (error) {
+                        console.error('Failed to start camera:', error);
+                        alert('Failed to start camera. Please click "Start Camera" button and allow camera access.');
+                    }
+                }
             });
         }
     }

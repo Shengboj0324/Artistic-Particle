@@ -1,42 +1,37 @@
 /**
- * Advanced Physics Engine for Particle System
- * 
- * Features:
- * - Curl noise for organic turbulence
- * - SPH-inspired fluid dynamics
- * - Multiple force field types
- * - Velocity-based color modulation
- * - Spatial hashing for performance
- * - Proper momentum and energy conservation
+ * Physics Engine for Particle System
+ *
+ * Particles are FREE-FLOWING. They are attracted to hands like iron filings to magnets.
+ * No pre-assignment. Pure physics-based attraction creates natural hand shapes.
  */
 
 export class PhysicsEngine {
     constructor(particleCount) {
         this.particleCount = particleCount;
         this.time = 0;
-        
-        // Noise parameters for curl noise
+
+        // Noise parameters
         this.noiseOctaves = 3;
         this.noiseLacunarity = 2.0;
         this.noisePersistence = 0.5;
-        
+
         // Physics constants
-        this.gravity = { x: 0, y: -0.02, z: 0 };
-        this.globalDamping = 0.995;
-        this.maxSpeed = 2.0;
-        this.boundaryRadius = 3.0;
-        this.boundaryStiffness = 0.5;
-        
-        // Turbulence settings
-        this.turbulenceStrength = 0.15;
-        this.turbulenceScale = 0.8;
-        this.turbulenceEvolution = 0.3;
-        
-        // Interaction settings
-        this.interactionRadius = 0.6;
-        this.forceMultiplier = 1.0;
-        
-        // Precomputed noise gradients for 3D Perlin noise
+        this.globalDamping = 0.985;
+        this.maxSpeed = 3.0;
+        this.boundaryRadius = 4.0;
+        this.boundaryStiffness = 0.2;
+
+        // Ambient turbulence (when no hand)
+        this.turbulenceStrength = 0.12;
+        this.turbulenceScale = 0.6;
+
+        // HAND ATTRACTION - particles flow toward hand naturally
+        this.attractionRadius = 2.5;       // How far attraction reaches
+        this.attractionStrength = 4.0;     // Pull strength toward landmarks
+        this.clusterRadius = 0.06;         // How close particles cluster
+        this.surfaceRepulsion = 2.0;       // Prevents particles from overlapping
+
+        // Precomputed noise
         this.gradients = this.generateGradients();
         this.permutation = this.generatePermutation();
     }
@@ -177,131 +172,200 @@ export class PhysicsEngine {
         return { x: curlX, y: curlY, z: curlZ };
     }
 
-    // Calculate hand interaction forces with advanced physics
-    calculateHandForces(px, py, pz, vx, vy, vz, handData, mode, intensity) {
-        let fx = 0, fy = 0, fz = 0;
-        if (!handData?.hands?.length) return { x: 0, y: 0, z: 0 };
+    /**
+     * Calculate attraction force from ALL hand landmarks to this particle.
+     * Every particle is FREE - attracted to the nearest/strongest landmark.
+     * This creates natural clustering around hand shape.
+     */
+    calculateHandAttraction(px, py, pz, handData, intensity) {
+        if (!handData?.hands?.length) return { x: 0, y: 0, z: 0, nearHand: false };
 
-        const radius = this.interactionRadius;
-        const radiusSq = radius * radius;
+        let fx = 0, fy = 0, fz = 0;
+        let minDist = Infinity;
+        let nearHand = false;
 
         for (const hand of handData.hands) {
-            // Palm-based force field
-            if (hand.palm) {
-                const palm = hand.palm;
-                const dx = palm.center.x - px, dy = palm.center.y - py, dz = palm.center.z - pz;
+            if (!hand.landmarks) continue;
+
+            // Each landmark acts as an attractor
+            for (let i = 0; i < hand.landmarks.length; i++) {
+                const lm = hand.landmarks[i];
+                const dx = lm.x - px;
+                const dy = lm.y - py;
+                const dz = lm.z - pz;
                 const distSq = dx * dx + dy * dy + dz * dz;
+                const dist = Math.sqrt(distSq);
 
-                if (distSq < radiusSq * 4 && distSq > 0.0001) {
-                    const dist = Math.sqrt(distSq);
-                    const falloff = 1 - dist / (radius * 2);
-                    const falloffSq = falloff * falloff;
-                    const openness = hand.metrics?.openness || 0.5;
-                    const normalForce = openness * falloffSq * intensity * 0.5;
-                    fx += palm.normal.x * normalForce;
-                    fy += palm.normal.y * normalForce;
-                    fz += palm.normal.z * normalForce;
+                if (dist < minDist) minDist = dist;
+
+                // Only attract within radius
+                if (dist > this.attractionRadius || dist < 0.001) continue;
+
+                nearHand = true;
+
+                // Attraction strength: inverse square with soft falloff
+                // Stronger when closer, but with repulsion at very close range
+                let strength;
+                if (dist < this.clusterRadius) {
+                    // Very close: gentle repulsion to prevent collapse
+                    strength = -this.surfaceRepulsion * (1 - dist / this.clusterRadius);
+                } else if (dist < this.clusterRadius * 3) {
+                    // Sweet spot: particles cluster here
+                    strength = this.attractionStrength * 0.5;
+                } else {
+                    // Far: strong attraction, falls off with distance
+                    const t = 1 - (dist - this.clusterRadius * 3) / (this.attractionRadius - this.clusterRadius * 3);
+                    strength = this.attractionStrength * t * t * intensity;
                 }
-            }
 
-            // Fingertip forces with velocity influence
-            if (hand.fingertips) {
-                for (const tip of hand.fingertips) {
-                    const pos = tip.position, vel = tip.velocity;
-                    const dx = pos.x - px, dy = pos.y - py, dz = pos.z - pz;
-                    const distSq = dx * dx + dy * dy + dz * dz;
-
-                    if (distSq < radiusSq && distSq > 0.0001) {
-                        const dist = Math.sqrt(distSq);
-                        const falloff = Math.pow(1 - dist / radius, 2);
-                        const velMag = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
-                        const strength = intensity * falloff * (1 + velMag * 2);
-
-                        switch (mode) {
-                            case 'flow':
-                                const tangentX = -dy, tangentY = dx;
-                                fx += (tangentX / dist * 0.3 + vel.x * 0.5) * strength;
-                                fy += (tangentY / dist * 0.3 + vel.y * 0.5) * strength;
-                                fz += vel.z * 0.5 * strength;
-                                break;
-                            case 'attract':
-                                const attractStr = strength / (distSq + 0.01);
-                                fx += dx * attractStr * 0.3;
-                                fy += dy * attractStr * 0.3;
-                                fz += dz * attractStr * 0.3;
-                                break;
-                            case 'repel':
-                                const repelStr = strength / (distSq + 0.01);
-                                fx -= dx * repelStr * 0.5;
-                                fy -= dy * repelStr * 0.5;
-                                fz -= dz * repelStr * 0.5;
-                                break;
-                            case 'vortex':
-                                const vortexStr = strength * 1.5;
-                                fx += (-dy / dist + dz * 0.2) * vortexStr;
-                                fy += (dx / dist + dz * 0.2) * vortexStr;
-                                fz += (-dx * 0.1 - dy * 0.1) * vortexStr;
-                                break;
-                            case 'sculpt':
-                                if (dist < radius * 0.3) {
-                                    fx -= dx / dist * strength * 2;
-                                    fy -= dy / dist * strength * 2;
-                                    fz -= dz / dist * strength * 2;
-                                } else {
-                                    fx += dx / dist * strength * 0.3;
-                                    fy += dy / dist * strength * 0.3;
-                                    fz += dz / dist * strength * 0.3;
-                                }
-                                break;
-                        }
-
-                        if (velMag > 0.5) {
-                            const wake = velMag * falloff * 0.2;
-                            fx += vel.x * wake; fy += vel.y * wake; fz += vel.z * wake;
-                        }
-                    }
-                }
+                // Accumulate force toward this landmark
+                const nx = dx / dist;
+                const ny = dy / dist;
+                const nz = dz / dist;
+                fx += nx * strength;
+                fy += ny * strength;
+                fz += nz * strength;
             }
         }
+
+        return { x: fx, y: fy, z: fz, nearHand, minDist };
+    }
+
+    /**
+     * Calculate mode-specific effects (flow, vortex, etc.)
+     */
+    calculateModeEffect(px, py, pz, vx, vy, vz, handData, mode, intensity) {
+        if (!handData?.hands?.length) return { x: 0, y: 0, z: 0 };
+
+        let fx = 0, fy = 0, fz = 0;
+
+        for (const hand of handData.hands) {
+            if (!hand.landmarks) continue;
+
+            // Use palm center for mode effects
+            const palm = hand.palm?.center || hand.landmarks[0];
+            const dx = palm.x - px;
+            const dy = palm.y - py;
+            const dz = palm.z - pz;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            if (dist > this.attractionRadius * 1.5 || dist < 0.01) continue;
+
+            const falloff = Math.pow(1 - dist / (this.attractionRadius * 1.5), 2);
+            const str = intensity * falloff;
+
+            switch (mode) {
+                case 'flow':
+                    // Swirl around palm
+                    fx += (-dy * 0.5 + (hand.palm?.normal?.x || 0) * 0.3) * str;
+                    fy += (dx * 0.5 + (hand.palm?.normal?.y || 0) * 0.3) * str;
+                    fz += (hand.palm?.normal?.z || 0) * 0.3 * str;
+                    break;
+
+                case 'attract':
+                    // Extra pull (already handled by main attraction)
+                    fx += dx / dist * str * 0.5;
+                    fy += dy / dist * str * 0.5;
+                    fz += dz / dist * str * 0.5;
+                    break;
+
+                case 'repel':
+                    // Push outward from palm
+                    fx -= dx / dist * str * 2;
+                    fy -= dy / dist * str * 2;
+                    fz -= dz / dist * str * 2;
+                    break;
+
+                case 'vortex':
+                    // Spiral tornado effect
+                    const angle = Math.atan2(dy, dx) + this.time * 2;
+                    const r = Math.sqrt(dx * dx + dy * dy);
+                    fx += (-Math.sin(angle) * r * 0.5 - dx * 0.1) * str;
+                    fy += (Math.cos(angle) * r * 0.5 - dy * 0.1) * str;
+                    fz += (0.3 - dz * 0.2) * str;
+                    break;
+
+                case 'sculpt':
+                    // Form tight surface around hand
+                    const targetDist = 0.15;
+                    if (dist < targetDist) {
+                        fx -= dx / dist * str * 3;
+                        fy -= dy / dist * str * 3;
+                        fz -= dz / dist * str * 3;
+                    } else if (dist < targetDist * 2) {
+                        fx += dx / dist * str;
+                        fy += dy / dist * str;
+                        fz += dz / dist * str;
+                    }
+                    break;
+            }
+        }
+
         return { x: fx, y: fy, z: fz };
     }
 
+    /**
+     * Main particle update - pure physics, no pre-assignment
+     */
     updateParticle(i3, positions, velocities, dt, handData, mode, intensity, preset) {
         let px = positions[i3], py = positions[i3 + 1], pz = positions[i3 + 2];
         let vx = velocities[i3], vy = velocities[i3 + 1], vz = velocities[i3 + 2];
 
+        // 1. Hand attraction - particles flow toward hand naturally
+        const attraction = this.calculateHandAttraction(px, py, pz, handData, intensity);
+        const handForce = (preset?.physics?.handForce || 1) * intensity;
+        vx += attraction.x * handForce * dt * 50;
+        vy += attraction.y * handForce * dt * 50;
+        vz += attraction.z * handForce * dt * 50;
+
+        // 2. Mode-specific effects
+        const modeEffect = this.calculateModeEffect(px, py, pz, vx, vy, vz, handData, mode, intensity);
+        vx += modeEffect.x * dt * 30;
+        vy += modeEffect.y * dt * 30;
+        vz += modeEffect.z * dt * 30;
+
+        // 3. Ambient turbulence (reduced when near hand for cleaner shape)
+        const turbReduction = attraction.nearHand ? 0.2 : 1.0;
         const curl = this.curlNoise(px, py, pz, this.time);
-        const turbStr = this.turbulenceStrength * (preset?.physics?.noiseScale || 1);
-        vx += curl.x * turbStr * dt; vy += curl.y * turbStr * dt; vz += curl.z * turbStr * dt;
+        const turbStr = this.turbulenceStrength * (preset?.physics?.noiseScale || 1) * turbReduction;
+        vx += curl.x * turbStr * dt * 60;
+        vy += curl.y * turbStr * dt * 60;
+        vz += curl.z * turbStr * dt * 60;
 
-        const handForce = this.calculateHandForces(px, py, pz, vx, vy, vz, handData, mode, intensity * (preset?.physics?.handForce || 1));
-        vx += handForce.x * dt * 60; vy += handForce.y * dt * 60; vz += handForce.z * dt * 60;
-
+        // 4. Soft boundary
         const dist = Math.sqrt(px * px + py * py + pz * pz);
         if (dist > this.boundaryRadius) {
-            const excess = dist - this.boundaryRadius;
-            const restoreForce = excess * this.boundaryStiffness;
-            vx -= (px / dist) * restoreForce * dt;
-            vy -= (py / dist) * restoreForce * dt;
-            vz -= (pz / dist) * restoreForce * dt;
+            const push = (dist - this.boundaryRadius) * this.boundaryStiffness;
+            vx -= (px / dist) * push * dt * 60;
+            vy -= (py / dist) * push * dt * 60;
+            vz -= (pz / dist) * push * dt * 60;
         }
 
-        const damping = preset?.physics?.damping || this.globalDamping;
-        vx *= damping; vy *= damping; vz *= damping;
+        // 5. Damping (less when near hand for responsiveness)
+        const damping = attraction.nearHand ? 0.96 : (preset?.physics?.damping || this.globalDamping);
+        vx *= damping;
+        vy *= damping;
+        vz *= damping;
 
+        // 6. Speed limit
         const speed = Math.sqrt(vx * vx + vy * vy + vz * vz);
         if (speed > this.maxSpeed) {
-            const scale = this.maxSpeed / speed;
-            vx *= scale; vy *= scale; vz *= scale;
+            const s = this.maxSpeed / speed;
+            vx *= s; vy *= s; vz *= s;
         }
 
+        // 7. Update position
         positions[i3] = px + vx * dt * 60;
         positions[i3 + 1] = py + vy * dt * 60;
         positions[i3 + 2] = pz + vz * dt * 60;
-        velocities[i3] = vx; velocities[i3 + 1] = vy; velocities[i3 + 2] = vz;
+        velocities[i3] = vx;
+        velocities[i3 + 1] = vy;
+        velocities[i3 + 2] = vz;
 
         return speed;
     }
 
-    update(dt) { this.time += dt; }
+    update(dt) {
+        this.time += dt;
+    }
 }
